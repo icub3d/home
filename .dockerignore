@@ -1,0 +1,36 @@
+# Build artifacts
+target/
+backend/target/
+frontend/node_modules/
+frontend/dist/
+dist/
+
+# Local configuration and secrets
+.env
+*.local
+.vscode/
+
+# Project specific ignores
+backend/photos/
+backend/photos_backup/
+*.db
+*.sqlite
+
+# Version control
+.git/
+.gitignore
+.dockerignore
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Documentation and charts
+charts/
+docs/
+*.md
+
+# Logs and temp
+*.log
+tmp/
+/home/jmarsh/.gemini/tmp/

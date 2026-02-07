@@ -1,0 +1,18 @@
+services:
+  home:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: home-system
+    restart: unless-stopped
+    ports:
+      - "4000:4001"
+    environment:
+      PORT: 4001
+      DATABASE_URL: sqlite:/app/data/home.db
+      PHOTOS_DIR: /app/data/photos
+    volumes:
+      - home_data:/app/data
+
+volumes:
+  home_data:
