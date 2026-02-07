@@ -19,6 +19,7 @@ interface EventDisplay {
 export default function Dashboard() {
   const { username, userId, isAdmin } = useAuth();
   const theme = useTheme();
+  const queryClient = useQueryClient();
 
   const { data: balances } = useQuery({
     queryKey: ['allowanceBalances'],
