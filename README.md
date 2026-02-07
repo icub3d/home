@@ -211,7 +211,17 @@ sqlx migrate run
 
 ## 🐳 Production Deployment
 
-### Option 1: Podman/Docker (Recommended)
+### Option 1: Kubernetes (Helm)
+
+The project includes a Helm chart for easy deployment to Kubernetes.
+
+1. **Configure overrides:** Create a `charts/home/values-local.yaml` file with your specific settings (hostname, ingress class, etc.). This file is ignored by git.
+2. **Deploy:**
+   ```bash
+   helm install home ./charts/home -f charts/home/values-local.yaml
+   ```
+
+### Option 2: Podman/Docker (Recommended)
 
 Use the provided `docker-compose.yml` to spin up the entire stack including PostgreSQL.
 
@@ -283,7 +293,7 @@ docker-compose up -d
 ### Security Best Practices
 
 1. ⚠️ Change default admin password immediately
-2. ⚠️ Generate a strong random JWT_SECRET (64+ characters)
+2. ⚠️ Generate a strong random JWT_SECRET (64+ characters). Note: The system will automatically generate and save one to the database on first startup if not provided via environment variable.
 3. ⚠️ Keep Google OAuth credentials secure
 4. ⚠️ Use HTTPS in production
 5. ⚠️ Regularly backup your database
