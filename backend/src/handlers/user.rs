@@ -85,7 +85,7 @@ pub async fn create_user(
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
     )
-    .bind(id.to_string())
+    .bind(id)
     .bind(payload.username)
     .bind(payload.name)
     .bind(password_hash)
@@ -96,7 +96,7 @@ pub async fn create_user(
     .await?;
 
     let user = query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(id.to_string())
+        .bind(id)
         .fetch_one(&state.db)
         .await?;
 
@@ -141,12 +141,12 @@ pub async fn update_user(
     .bind(payload.role.map(|r| r.to_string()))
     .bind(payload.profile_picture_url)
     .bind(payload.track_allowance)
-    .bind(id.to_string())
+    .bind(id)
     .execute(&state.db)
     .await?;
 
     let user = query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(id.to_string())
+        .bind(id)
         .fetch_optional(&state.db)
         .await?
         .ok_or(AppError::UserNotFound)?;
