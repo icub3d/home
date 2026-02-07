@@ -66,11 +66,27 @@ pub async fn get_photo(
     }
 
     // Security check for filename to prevent path traversal
-    if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+    // Only allow alphanumeric IDs with .jpg or .png extension
+    static FILENAME_REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = FILENAME_REGEX.get_or_init(|| regex::Regex::new(r"^[a-zA-Z0-9\-_]+\.(jpg|jpeg|png)$").unwrap());
+    
+    if !re.is_match(&filename) {
         return Err(AppError::BadRequest("Invalid filename".to_string()));
     }
 
+    // Ensure the filename itself doesn't have any path components
+    if std::path::Path::new(&filename).components().count() != 1 {
+        return Err(AppError::BadRequest("Invalid filename structure".to_string()));
+    }
+
     let file_path = state.photos_dir.join(&filename);
+
+    // Canonicalize paths to ensure no symbolic link tricks or traversal
+    // However, since we strictly regex the filename, join() is safe.
+    // To be extra sure, we check that the resulting path starts with the photos directory.
+    if !file_path.starts_with(&state.photos_dir) {
+        return Err(AppError::BadRequest("Invalid path".to_string()));
+    }
 
     if !file_path.exists() {
         return Err(AppError::BadRequest("Photo not found".to_string()));
@@ -304,8 +320,19 @@ pub async fn disconnect_google_photos(
     *cache = None;
     
     let photos_dir = state.photos_dir.clone();
-    if photos_dir.exists() {
-        let _ = fs::remove_dir_all(photos_dir).await;
+    
+    // Final safety check for recursive deletion:
+    // 1. Must exist
+    // 2. Must not be root
+    // 3. Must be a subdirectory of the current working directory (trusted root)
+    if let Ok(cwd) = std::env::current_dir() {
+        if photos_dir.exists() 
+            && photos_dir != cwd 
+            && photos_dir.starts_with(&cwd) 
+            && photos_dir != std::path::Path::new("/") 
+        {
+            let _ = fs::remove_dir_all(photos_dir).await;
+        }
     }
 
     Ok(StatusCode::NO_CONTENT)

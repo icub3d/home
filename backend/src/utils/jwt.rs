@@ -31,15 +31,17 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<bool, AppE
 }
 
 pub fn create_jwt(user_id: Uuid, role: &UserRole, secret: &[u8]) -> Result<String, AppError> {
-    let expiration = SystemTime::now()
+    let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as usize + 60 * 60 * 24 * 30; // 30 days
+        .map(|d| d.as_secs())
+        .unwrap_or(0) as usize;
+
+    let expiration = now + 60 * 60 * 24 * 30; // 30 days
 
     let claims = Claims {
         sub: user_id.to_string(),
         role: role.to_string(),
-        iat: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as usize,
+        iat: now,
         exp: expiration,
     };
 
@@ -76,9 +78,9 @@ pub fn should_refresh_token(claims: &Claims) -> bool {
 
         .duration_since(UNIX_EPOCH)
 
-        .unwrap()
+        .map(|d| d.as_secs())
 
-        .as_secs() as usize;
+        .unwrap_or(0) as usize;
 
     
 

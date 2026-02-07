@@ -34,6 +34,10 @@ pub async fn add_transaction(
         return Err(AppError::UserNotFound);
     }
 
+    if payload.description.len() > 500 {
+        return Err(AppError::InvalidInput("Description too long".to_string()));
+    }
+
     let mut tx = state.db.begin().await.map_err(AppError::Sqlx)?;
 
     let latest_balance: Option<i64> = sqlx::query_scalar(

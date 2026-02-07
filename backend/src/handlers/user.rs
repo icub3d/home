@@ -58,8 +58,20 @@ pub async fn create_user(
 ) -> Result<Json<User>, AppError> {
     require_admin(&auth)?;
 
+    if payload.username.len() > 100 {
+        return Err(AppError::InvalidInput("Username too long".to_string()));
+    }
+
+    if payload.name.len() > 255 {
+        return Err(AppError::InvalidInput("Name too long".to_string()));
+    }
+
     if payload.password.len() < 12 {
         return Err(AppError::InvalidInput("Password must be at least 12 characters".to_string()));
+    }
+
+    if payload.password.len() > 1024 {
+        return Err(AppError::InvalidInput("Password too long".to_string()));
     }
 
     let user_role = payload.role.unwrap_or(UserRole::Member);
@@ -73,7 +85,7 @@ pub async fn create_user(
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
     )
-    .bind(id)
+    .bind(id.to_string())
     .bind(payload.username)
     .bind(payload.name)
     .bind(password_hash)
@@ -84,7 +96,7 @@ pub async fn create_user(
     .await?;
 
     let user = query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(id)
+        .bind(id.to_string())
         .fetch_one(&state.db)
         .await?;
 
@@ -98,6 +110,18 @@ pub async fn update_user(
     Json(payload): Json<UpdateUserSchema>,
 ) -> Result<Json<User>, AppError> {
     require_admin(&auth)?;
+
+    if let Some(ref name) = payload.name {
+        if name.len() > 255 {
+            return Err(AppError::InvalidInput("Name too long".to_string()));
+        }
+    }
+
+    if let Some(ref url) = payload.profile_picture_url {
+        if url.len() > 2048 {
+            return Err(AppError::InvalidInput("Profile picture URL too long".to_string()));
+        }
+    }
 
     sqlx::query(
         r#"
@@ -117,12 +141,12 @@ pub async fn update_user(
     .bind(payload.role.map(|r| r.to_string()))
     .bind(payload.profile_picture_url)
     .bind(payload.track_allowance)
-    .bind(id)
+    .bind(id.to_string())
     .execute(&state.db)
     .await?;
 
     let user = query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(id)
+        .bind(id.to_string())
         .fetch_optional(&state.db)
         .await?
         .ok_or(AppError::UserNotFound)?;

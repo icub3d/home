@@ -13,7 +13,7 @@ use axum::{
 };
 use sqlx::sqlite::SqlitePoolOptions;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::services::{ServeDir, ServeFile};
@@ -108,9 +108,18 @@ async fn main() {
         };
 
     let photos_dir = if let Ok(s) = std::env::var("PHOTOS_DIR") {
-        PathBuf::from(s)
+        let p = PathBuf::from(s);
+        if p == Path::new("/") || p.as_os_str().is_empty() {
+            panic!("Dangerous or invalid PHOTOS_DIR: {:?}", p);
+        }
+        // Canonicalize if it exists, or just ensure it is absolute
+        if p.is_relative() {
+            std::env::current_dir().unwrap_or_default().join(p)
+        } else {
+            p
+        }
     } else {
-        PathBuf::from("data/photos")
+        std::env::current_dir().unwrap_or_default().join("data/photos")
     };
 
     // Ensure photos directory exists

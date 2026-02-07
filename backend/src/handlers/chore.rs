@@ -57,6 +57,10 @@ pub async fn create_chore(
 ) -> Result<Json<Chore>, AppError> {
     require_admin(&auth)?;
 
+    if payload.description.len() > 500 {
+        return Err(AppError::InvalidInput("Description too long".to_string()));
+    }
+
     // Verify assigned user exists
     let user_exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)"
@@ -111,6 +115,12 @@ pub async fn update_chore(
         }
         if payload.description.is_some() || payload.assigned_to.is_some() || payload.reward.is_some() {
             return Err(AppError::AuthError);
+        }
+    }
+
+    if let Some(ref desc) = payload.description {
+        if desc.len() > 500 {
+            return Err(AppError::InvalidInput("Description too long".to_string()));
         }
     }
 

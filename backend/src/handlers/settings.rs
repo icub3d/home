@@ -59,6 +59,9 @@ pub async fn update_settings(
     require_admin(&auth)?;
 
     if let Some(name) = payload.family_name {
+        if name.len() > 100 {
+            return Err(AppError::InvalidInput("Family name too long".to_string()));
+        }
         sqlx::query(
             "INSERT INTO settings (key, value) VALUES ($1, $2) 
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = datetime('now')"
@@ -70,6 +73,9 @@ pub async fn update_settings(
     }
 
     if let Some(url) = payload.base_url {
+        if url.len() > 2048 {
+            return Err(AppError::InvalidInput("Base URL too long".to_string()));
+        }
         sqlx::query(
             "INSERT INTO settings (key, value) VALUES ($1, $2) 
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = datetime('now')"
@@ -93,7 +99,9 @@ pub async fn update_settings(
     }
 
     if let Some(zip) = payload.weather_zip_code {
-        let zip_regex = Regex::new(r"^\d{5}$").unwrap();
+        static ZIP_REGEX: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+        let zip_regex = ZIP_REGEX.get_or_init(|| Regex::new(r"^\d{5}$").expect("Invalid regex"));
+        
         if !zip.is_empty() && !zip_regex.is_match(&zip) {
              return Err(AppError::InvalidInput("Invalid zip code format".to_string()));
         }
@@ -128,6 +136,9 @@ pub async fn update_settings(
     }
 
     if let Some(key) = payload.openweather_api_key {
+        if key.len() > 255 {
+            return Err(AppError::InvalidInput("API key too long".to_string()));
+        }
         *state.openweather_api_key.write().await = key.clone();
         sqlx::query(
             "INSERT INTO settings (key, value) VALUES ($1, $2) 
@@ -140,6 +151,9 @@ pub async fn update_settings(
     }
 
     if let Some(id) = payload.google_client_id {
+        if id.len() > 255 {
+            return Err(AppError::InvalidInput("Client ID too long".to_string()));
+        }
         *state.google_client_id.write().await = id.clone();
         sqlx::query(
             "INSERT INTO settings (key, value) VALUES ($1, $2) 
@@ -152,6 +166,9 @@ pub async fn update_settings(
     }
 
     if let Some(secret) = payload.google_client_secret {
+        if secret.len() > 255 {
+            return Err(AppError::InvalidInput("Client secret too long".to_string()));
+        }
         *state.google_client_secret.write().await = secret.clone();
         sqlx::query(
             "INSERT INTO settings (key, value) VALUES ($1, $2) 
