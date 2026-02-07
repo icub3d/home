@@ -10,21 +10,21 @@ RUN npm run build
 
 # --- Backend Build Stage ---
 FROM docker.io/rustlang/rust:nightly-slim as backend-builder
-RUN apt-get update && 
-    apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates build-essential && 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates build-essential && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY backend/ .
-RUN --mount=type=cache,target=/usr/local/cargo/registry 
-    --mount=type=cache,target=/app/target 
-    cargo build --release && 
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/app/target \
+    cargo build --release && \
     cp target/release/backend /backend
 
 # --- Runtime Stage ---
 FROM docker.io/library/debian:trixie-slim
 WORKDIR /app
-RUN apt-get update && 
-    apt-get install -y --no-install-recommends ca-certificates libssl3 && 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates libssl3 && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy backend binary
