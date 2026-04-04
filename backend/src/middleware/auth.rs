@@ -29,9 +29,14 @@ pub struct AuthUser {
 
 impl AuthUser {
     /// Check if user has admin privileges. 
-    /// API Keys are NOT allowed to perform admin actions (like changing settings).
     pub fn is_admin(&self) -> bool {
-        !self.from_api_key && self.role.is_admin()
+        self.role.is_admin()
+    }
+
+    /// Explicit check for whether this user is allowed to modify system settings.
+    /// API Keys are NOT allowed to perform these actions.
+    pub fn can_manage_settings(&self) -> bool {
+        !self.from_api_key && self.is_admin()
     }
 }
 
@@ -77,39 +82,36 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
         }
 
         // 2. Check Authorization header
-        let auth_header = parts
-            .headers
-            .get(axum::http::header::AUTHORIZATION)
-            .ok_or(AppError::AuthError)?;
+        if let Some(auth_header) = parts.headers.get(axum::http::header::AUTHORIZATION) {
+            let auth_header_str = auth_header.to_str().map_err(|_| AppError::AuthError)?;
 
-        let auth_header_str = auth_header.to_str().map_err(|_| AppError::AuthError)?;
+            if auth_header_str.starts_with("Bearer ") {
+                let token = &auth_header_str[7..];
 
-        if !auth_header_str.starts_with("Bearer ") {
-            return Err(AppError::AuthError);
-        }
+                // 2a. Check if Bearer token is actually an API Key (starts with hb_)
+                if token.starts_with("hb_") {
+                    if let Some(auth_user) = validate_api_key(token, state).await? {
+                        return Ok(auth_user);
+                    }
+                }
 
-        let token = &auth_header_str[7..];
+                // 2b. Otherwise, parse as JWT
+                let jwt_secret = state.jwt_secret.read().await;
+                let claims = verify_jwt(token, jwt_secret.as_bytes())?;
+                
+                let user_id = Uuid::parse_str(&claims.sub)
+                    .map_err(|_| AppError::AuthError)?;
+                let role = claims.role.parse::<UserRole>()
+                    .map_err(|_| AppError::AuthError)?;
 
-        // 2a. Check if Bearer token is actually an API Key (starts with hb_)
-        if token.starts_with("hb_") {
-            if let Some(auth_user) = validate_api_key(token, state).await? {
-                return Ok(auth_user);
+                return Ok(AuthUser {
+                    user_id,
+                    role,
+                    from_api_key: false,
+                });
             }
         }
 
-        // 2b. Otherwise, parse as JWT
-        let jwt_secret = state.jwt_secret.read().await;
-        let claims = verify_jwt(token, jwt_secret.as_bytes())?;
-        
-        let user_id = Uuid::parse_str(&claims.sub)
-            .map_err(|_| AppError::AuthError)?;
-        let role = claims.role.parse::<UserRole>()
-            .map_err(|_| AppError::AuthError)?;
-
-        Ok(AuthUser {
-            user_id,
-            role,
-            from_api_key: false,
-        })
+        Err(AppError::AuthError)
     }
 }

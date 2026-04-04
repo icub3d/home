@@ -6,49 +6,52 @@ use url::Url;
 use crate::{
     error::AppError,
     middleware::auth::AuthUser,
-    models::settings::{AppSettings, Setting, UpdateAppSettingsSchema},
+    models::settings::{AppSettings, UpdateAppSettingsSchema},
     state::AppState,
-    utils::auth_helpers::require_admin,
 };
 
 pub async fn get_settings(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<AppSettings>, AppError> {
-    require_admin(&auth)?;
-
-    let rows = sqlx::query_as::<_, Setting>(
-        "SELECT key, value, updated_at FROM settings",
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let mut settings = AppSettings::default();
-    for row in rows {
-        match row.key.as_str() {
-            "family_name" => settings.family_name = row.value,
-            "base_url" => settings.base_url = row.value,
-            "weather_zip_code" => settings.weather_zip_code = row.value,
-            "background_url" => settings.background_url = row.value,
-            "openweather_api_key" => settings.openweather_api_key = row.value,
-            "google_client_id" => settings.google_client_id = row.value,
-            "google_client_secret" => settings.google_client_secret = row.value,
-            "google_photos_access_token" => settings.google_photos_access_token = row.value,
-            "google_photos_refresh_token" => {
-                if !row.value.is_empty() {
-                    settings.google_connected = true;
-                }
-                settings.google_photos_refresh_token = row.value;
-            }
-            "google_photos_token_expiry" => settings.google_photos_token_expiry = row.value,
-            "google_photos_album_id" => settings.google_photos_album_id = row.value,
-            "google_photos_picked_items" => settings.google_photos_picked_items = row.value,
-            "last_background_refresh" => settings.last_background_refresh = row.value,
-            _ => {}
-        }
+    if !auth.is_admin() {
+        return Err(AppError::AuthError);
     }
 
-    Ok(Json(settings))
+    let family_name = get_setting(&state.db, "family_name").await;
+    let base_url = get_setting(&state.db, "base_url").await;
+    let weather_zip_code = get_setting(&state.db, "weather_zip_code").await;
+    let background_url = get_setting(&state.db, "background_url").await;
+    let openweather_api_key = get_setting(&state.db, "openweather_api_key").await;
+    let google_client_id = get_setting(&state.db, "google_client_id").await;
+    let google_client_secret = get_setting(&state.db, "google_client_secret").await;
+
+    let google_photos_access_token = get_setting(&state.db, "google_access_token").await;
+    let google_photos_refresh_token = get_setting(&state.db, "google_refresh_token").await;
+    let google_photos_token_expiry = get_setting(&state.db, "google_token_expiry").await;
+    let google_photos_album_id = get_setting(&state.db, "google_photos_album_id").await;
+    let google_photos_picked_items = get_setting(&state.db, "google_photos_picked_items").await;
+    let last_background_refresh = get_setting(&state.db, "last_background_refresh").await;
+
+    let google_connected = !google_client_id.is_empty() && !google_client_secret.is_empty() && 
+        !google_photos_refresh_token.is_empty();
+
+    Ok(Json(AppSettings {
+        family_name,
+        base_url,
+        weather_zip_code,
+        background_url,
+        openweather_api_key,
+        google_client_id,
+        google_client_secret,
+        google_connected,
+        google_photos_access_token,
+        google_photos_refresh_token,
+        google_photos_token_expiry,
+        google_photos_album_id,
+        google_photos_picked_items,
+        last_background_refresh,
+    }))
 }
 
 pub async fn update_settings(
@@ -56,129 +59,77 @@ pub async fn update_settings(
     auth: AuthUser,
     Json(payload): Json<UpdateAppSettingsSchema>,
 ) -> Result<Json<AppSettings>, AppError> {
-    require_admin(&auth)?;
+    // API Keys are NOT allowed to modify settings
+    if !auth.can_manage_settings() {
+        return Err(AppError::AuthError);
+    }
 
-    if let Some(name) = payload.family_name {
+    // Validation
+    if let Some(ref name) = payload.family_name {
         if name.len() > 100 {
             return Err(AppError::InvalidInput("Family name too long".to_string()));
         }
-        sqlx::query(
-            "INSERT INTO settings (key, value) VALUES ($1, $2) 
-             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = datetime('now')"
-        )
-        .bind("family_name")
-        .bind(name)
-        .execute(&state.db)
-        .await?;
     }
 
-    if let Some(url) = payload.base_url {
-        if url.len() > 2048 {
+    if let Some(ref url_str) = payload.base_url {
+        if url_str.len() > 255 {
             return Err(AppError::InvalidInput("Base URL too long".to_string()));
         }
-        sqlx::query(
-            "INSERT INTO settings (key, value) VALUES ($1, $2) 
-             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = datetime('now')"
-        )
-        .bind("base_url")
-        .bind(&url)
-        .execute(&state.db)
-        .await?;
-
-        // Also update redirect URI
-        let redirect_uri = format!("{}/api/google-photos/callback", url.trim_end_matches('/'));
-        *state.google_oauth_redirect_uri.write().await = redirect_uri.clone();
-        sqlx::query(
-            "INSERT INTO settings (key, value) VALUES ($1, $2) 
-             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = datetime('now')"
-        )
-        .bind("google_oauth_redirect_uri")
-        .bind(redirect_uri)
-        .execute(&state.db)
-        .await?;
+        Url::parse(url_str).map_err(|_| AppError::InvalidInput("Invalid Base URL".to_string()))?;
     }
 
-    if let Some(zip) = payload.weather_zip_code {
-        static ZIP_REGEX: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-        let zip_regex = ZIP_REGEX.get_or_init(|| Regex::new(r"^\d{5}$").expect("Invalid regex"));
-        
-        if !zip.is_empty() && !zip_regex.is_match(&zip) {
-             return Err(AppError::InvalidInput("Invalid zip code format".to_string()));
+    if let Some(ref zip) = payload.weather_zip_code {
+        let zip_regex = Regex::new(r"^\d{5}$").unwrap();
+        if !zip_regex.is_match(zip) && !zip.is_empty() {
+            return Err(AppError::InvalidInput("Invalid zip code".to_string()));
         }
-
-        sqlx::query(
-            "INSERT INTO settings (key, value) VALUES ($1, $2) 
-             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = datetime('now')"
-        )
-        .bind("weather_zip_code")
-        .bind(zip)
-        .execute(&state.db)
-        .await?;
     }
 
-    if let Some(url) = payload.background_url {
-        if !url.is_empty() {
-             let parsed_url = Url::parse(&url)
-                 .map_err(|_| AppError::InvalidInput("Invalid URL format".to_string()))?;
-             if parsed_url.scheme() != "https" {
-                 return Err(AppError::InvalidInput("Only HTTPS URLs are allowed".to_string()));
-             }
-        }
-
-        sqlx::query(
-            "INSERT INTO settings (key, value) VALUES ($1, $2) 
-             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = datetime('now')"
-        )
-        .bind("background_url")
-        .bind(url)
-        .execute(&state.db)
-        .await?;
+    // Save settings
+    if let Some(val) = payload.family_name {
+        save_setting(&state.db, "family_name", &val).await?;
     }
-
-    if let Some(key) = payload.openweather_api_key {
-        if key.len() > 255 {
-            return Err(AppError::InvalidInput("API key too long".to_string()));
-        }
-        *state.openweather_api_key.write().await = key.clone();
-        sqlx::query(
-            "INSERT INTO settings (key, value) VALUES ($1, $2) 
-             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = datetime('now')"
-        )
-        .bind("openweather_api_key")
-        .bind(key)
-        .execute(&state.db)
-        .await?;
+    if let Some(val) = payload.base_url {
+        save_setting(&state.db, "base_url", &val).await?;
+        *state.base_url.write().await = val;
     }
-
-    if let Some(id) = payload.google_client_id {
-        if id.len() > 255 {
-            return Err(AppError::InvalidInput("Client ID too long".to_string()));
-        }
-        *state.google_client_id.write().await = id.clone();
-        sqlx::query(
-            "INSERT INTO settings (key, value) VALUES ($1, $2) 
-             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = datetime('now')"
-        )
-        .bind("google_client_id")
-        .bind(id)
-        .execute(&state.db)
-        .await?;
+    if let Some(val) = payload.weather_zip_code {
+        save_setting(&state.db, "weather_zip_code", &val).await?;
     }
-
-    if let Some(secret) = payload.google_client_secret {
-        if secret.len() > 255 {
-            return Err(AppError::InvalidInput("Client secret too long".to_string()));
-        }
-        *state.google_client_secret.write().await = secret.clone();
-        sqlx::query(
-            "INSERT INTO settings (key, value) VALUES ($1, $2) 
-             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = datetime('now')"
-        )
-        .bind("google_client_secret")
-        .bind(secret)
-        .execute(&state.db)
-        .await?;
+    if let Some(val) = payload.background_url {
+        save_setting(&state.db, "background_url", &val).await?;
+    }
+    if let Some(val) = payload.openweather_api_key {
+        save_setting(&state.db, "openweather_api_key", &val).await?;
+        *state.openweather_api_key.write().await = val;
+    }
+    if let Some(val) = payload.google_client_id {
+        save_setting(&state.db, "google_client_id", &val).await?;
+        *state.google_client_id.write().await = val;
+    }
+    if let Some(val) = payload.google_client_secret {
+        save_setting(&state.db, "google_client_secret", &val).await?;
+        *state.google_client_secret.write().await = val;
     }
 
     get_settings(State(state), auth).await
+}
+
+async fn get_setting(pool: &sqlx::SqlitePool, key: &str) -> String {
+    sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = $1")
+        .bind(key)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or_default()
+        .unwrap_or_default()
+}
+
+async fn save_setting(pool: &sqlx::SqlitePool, key: &str, value: &str) -> Result<(), AppError> {
+    sqlx::query("INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = $2")
+        .bind(key)
+        .bind(value)
+        .execute(pool)
+        .await
+        .map_err(AppError::Sqlx)?;
+    Ok(())
 }
