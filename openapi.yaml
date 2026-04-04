@@ -1,0 +1,403 @@
+openapi: 3.0.3
+info:
+  title: Home Management API
+  description: API for managing family members, allowances, chores, and home dashboard data.
+  version: 1.0.0
+servers:
+  - url: /api
+    description: Local development server
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        name:
+          type: string
+        birthday:
+          type: string
+          format: date
+          nullable: true
+        role:
+          type: string
+          enum: [admin, member]
+        track_allowance:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UserBalance:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        balance:
+          type: integer
+          description: Balance in cents
+
+    AllowanceTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+          description: Amount in cents (positive for credit, negative for debit)
+        balance:
+          type: integer
+          description: Resulting balance in cents
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Chore:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        description:
+          type: string
+        assigned_to:
+          type: string
+          format: uuid
+          nullable: true
+        assigned_name:
+          type: string
+          nullable: true
+        reward:
+          type: integer
+          nullable: true
+          description: Reward in cents
+        completed:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Calendar:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        color:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    SystemStatus:
+      type: object
+      properties:
+        initialized:
+          type: boolean
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+
+paths:
+  /auth/status:
+    get:
+      summary: Get system initialization status
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatus'
+
+  /users:
+    get:
+      summary: List all family members
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+    post:
+      summary: Create a new family member
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, name, password, role]
+              properties:
+                username: { type: string }
+                name: { type: string }
+                password: { type: string }
+                role: { type: string, enum: [admin, member] }
+                birthday: { type: string, format: date }
+                track_allowance: { type: boolean }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /users/{id}:
+    get:
+      summary: Get user details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    put:
+      summary: Update user details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                birthday: { type: string, format: date }
+                role: { type: string, enum: [admin, member] }
+                track_allowance: { type: boolean }
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete a user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Deleted
+
+  /allowance/balances:
+    get:
+      summary: Get current balances for all members
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserBalance'
+
+  /allowance/{user_id}:
+    get:
+      summary: Get transaction ledger for a user
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AllowanceTransaction'
+
+  /allowance/{user_id}/transaction:
+    post:
+      summary: Add a transaction to a user's ledger
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, description]
+              properties:
+                amount:
+                  type: integer
+                  description: Amount in cents
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowanceTransaction'
+
+  /chores:
+    get:
+      summary: List all chores
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Chore'
+    post:
+      summary: Create a new chore
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [description]
+              properties:
+                description: { type: string }
+                assigned_to: { type: string, format: uuid, nullable: true }
+                reward: { type: integer, nullable: true }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Chore'
+
+  /chores/{id}:
+    put:
+      summary: Update a chore
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description: { type: string }
+                assigned_to: { type: string, format: uuid, nullable: true }
+                reward: { type: integer, nullable: true }
+                completed: { type: boolean }
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete a chore
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Deleted
+
+  /chores/{id}/toggle:
+    put:
+      summary: Toggle chore completion status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+
+  /calendars:
+    get:
+      summary: List registered calendars
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Calendar'
+    post:
+      summary: Add a new calendar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                url: { type: string, description: "iCal URL" }
+                google_id: { type: string }
+                color: { type: string }
+      responses:
+        '201':
+          description: Created
+
+  /weather:
+    get:
+      summary: Get current weather data
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
