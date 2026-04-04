@@ -8,3 +8,4 @@ pub mod display;
 pub mod chore;
 pub mod weather;
 pub mod google_photos;
+pub mod api_key;

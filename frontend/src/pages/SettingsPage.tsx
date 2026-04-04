@@ -38,10 +38,12 @@ import {
   Info as InfoIcon,
   OpenInNew as OpenInNewIcon,
   Settings as SettingsIcon,
+  VpnKey as KeyIcon,
+  ContentCopy as CopyIcon,
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { settingsApi, calendarApi, displayApi, googlePhotosApi } from '../api';
-import type { CreateCalendarInput } from '../types';
+import { settingsApi, calendarApi, displayApi, googlePhotosApi, apiKeysApi } from '../api';
+import type { CreateCalendarInput, CreatedApiKeyResponse } from '../types';
 import { client } from '../api/client';
 
 const calendarColors = ['primary', 'secondary', 'error', 'warning', 'info', 'success'];
@@ -64,6 +66,11 @@ export default function SettingsPage() {
   // Display Token State
   const [isTokenDialogOpen, setIsTokenDialogOpen] = useState(false);
   const [newTokenName, setNewTokenName] = useState('');
+
+  // API Key State
+  const [isKeyDialogOpen, setIsKeyDialogOpen] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [createdKey, setCreatedKey] = useState<CreatedApiKeyResponse | null>(null);
 
   // Google Photos State
   const [isPickerDialogOpen, setIsPickerDialogOpen] = useState(false);
@@ -89,6 +96,12 @@ export default function SettingsPage() {
   const { data: tokens, isLoading: isTokenLoading } = useQuery({
     queryKey: ['displayTokens'],
     queryFn: displayApi.getTokens,
+  });
+
+  // Fetch API Keys
+  const { data: apiKeys, isLoading: isKeysLoading } = useQuery({
+    queryKey: ['apiKeys'],
+    queryFn: apiKeysApi.listKeys,
   });
 
   useEffect(() => {
@@ -135,6 +148,25 @@ export default function SettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['displayTokens'] });
       setSuccessMessage('Display token deleted.');
+    }
+  });
+
+  const createApiKeyMutation = useMutation({
+    mutationFn: (name: string) => apiKeysApi.createKey({ name }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['apiKeys'] });
+      setIsKeyDialogOpen(false);
+      setNewKeyName('');
+      setCreatedKey(data);
+    },
+    onError: () => setErrorMessage('Failed to create API key.')
+  });
+
+  const deleteApiKeyMutation = useMutation({
+    mutationFn: (id: string) => apiKeysApi.deleteKey(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['apiKeys'] });
+      setSuccessMessage('API key deleted.');
     }
   });
 
@@ -190,6 +222,17 @@ export default function SettingsPage() {
   const handleDeleteToken = (id: string) => {
     if (window.confirm('Are you sure? This will disconnect any display using this token.')) {
       deleteTokenMutation.mutate(id);
+    }
+  };
+
+  const handleAddApiKey = (e: React.FormEvent) => {
+    e.preventDefault();
+    createApiKeyMutation.mutate(newKeyName);
+  };
+
+  const handleDeleteApiKey = (id: string) => {
+    if (window.confirm('Are you sure you want to delete this API key? Any applications using it will lose access.')) {
+      deleteApiKeyMutation.mutate(id);
     }
   };
 
@@ -299,7 +342,7 @@ export default function SettingsPage() {
     }
   };
 
-  const isLoading = isSettingsLoading || isCalLoading || isTokenLoading;
+  const isLoading = isSettingsLoading || isCalLoading || isTokenLoading || isKeysLoading;
 
   if (isLoading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
 
@@ -411,6 +454,44 @@ export default function SettingsPage() {
         </form>
       </Paper>
 
+      {/* API Keys */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <KeyIcon />
+            <Typography variant="h6">API Keys</Typography>
+          </Box>
+          <Button startIcon={<AddIcon />} variant="outlined" onClick={() => setIsKeyDialogOpen(true)}>
+            Create API Key
+          </Button>
+        </Box>
+        <Typography variant="body2" color="text.secondary" mb={2}>
+          Manage API keys for external integrations (like MCP servers). Keys have general access but cannot modify system settings.
+        </Typography>
+        <List>
+          {apiKeys?.map((key) => (
+            <React.Fragment key={key.id}>
+              <ListItem
+                secondaryAction={
+                  <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteApiKey(key.id)}>
+                    <DeleteIcon />
+                  </IconButton>
+                }
+              >
+                <ListItemText 
+                  primary={key.name} 
+                  secondary={key.last_used_at ? `Last used: ${new Date(key.last_used_at).toLocaleString()}` : 'Never used'}
+                />
+              </ListItem>
+              <Divider />
+            </React.Fragment>
+          ))}
+          {apiKeys?.length === 0 && (
+            <Typography variant="body2" color="text.secondary">No API keys created.</Typography>
+          )}
+        </List>
+      </Paper>
+
       {/* Backup & Restore */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="h6" gutterBottom>Backup & Restore</Typography>
@@ -520,7 +601,7 @@ export default function SettingsPage() {
       </Paper>
 
       {/* Display Tokens */}
-      <Paper sx={{ p: 3 }}>
+      <Paper sx={{ p: 3, mb: 3 }}>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
           <Typography variant="h6">Display Tokens</Typography>
           <Button startIcon={<AddIcon />} variant="outlined" onClick={() => setIsTokenDialogOpen(true)}>
@@ -572,6 +653,66 @@ export default function SettingsPage() {
             <Button type="submit" variant="contained">Create</Button>
           </DialogActions>
         </form>
+      </Dialog>
+
+      {/* Add API Key Dialog */}
+      <Dialog open={isKeyDialogOpen} onClose={() => setIsKeyDialogOpen(false)} fullWidth maxWidth="sm">
+        <form onSubmit={handleAddApiKey}>
+          <DialogTitle>Create API Key</DialogTitle>
+          <DialogContent>
+            <Box display="flex" flexDirection="column" gap={2} mt={1}>
+              <TextField
+                label="Key Name (e.g. My MCP Server)"
+                required
+                fullWidth
+                value={newKeyName}
+                onChange={(e) => setNewKeyName(e.target.value)}
+                helperText="Give this key a name to help you remember where it is used."
+              />
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setIsKeyDialogOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="contained" disabled={createApiKeyMutation.isPending}>
+              {createApiKeyMutation.isPending ? 'Creating...' : 'Create'}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+
+      {/* Show Created API Key Dialog */}
+      <Dialog open={!!createdKey} onClose={() => setCreatedKey(null)} fullWidth maxWidth="sm">
+        <DialogTitle>API Key Created</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Copy this key now! You will not be able to see it again.
+          </Alert>
+          <Typography variant="body2" gutterBottom>
+            Use this key in the <code>X-API-Key</code> header of your requests.
+          </Typography>
+          <Box 
+            sx={{ 
+              p: 2, 
+              bgcolor: 'action.hover', 
+              borderRadius: 1, 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              fontFamily: 'monospace',
+              wordBreak: 'break-all'
+            }}
+          >
+            <Typography variant="body2">{createdKey?.key}</Typography>
+            <IconButton onClick={() => {
+              if (createdKey) navigator.clipboard.writeText(createdKey.key);
+            }}>
+              <CopyIcon />
+            </IconButton>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreatedKey(null)}>Close</Button>
+        </DialogActions>
       </Dialog>
 
       {/* Add Calendar Dialog */}

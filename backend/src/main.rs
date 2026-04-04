@@ -22,7 +22,7 @@ use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer, key_extract
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::state::AppState;
-use crate::handlers::{auth, user, allowance, settings, calendar, backup, display, chore, weather, google_photos};
+use crate::handlers::{auth, user, allowance, settings, calendar, backup, display, chore, weather, google_photos, api_key};
 
 fn env_bool(key: &str) -> bool {
     matches!(
@@ -166,6 +166,9 @@ async fn main() {
         .route("/allowance/balances", get(allowance::get_balances))
         .route("/allowance/{user_id}", get(allowance::get_ledger))
         .route("/allowance/{user_id}/transaction", post(allowance::add_transaction))
+        // API Key routes
+        .route("/api-keys", get(api_key::list_api_keys).post(api_key::create_api_key))
+        .route("/api-keys/{id}", delete(api_key::delete_api_key))
         // Settings routes
         .route("/settings", get(settings::get_settings).put(settings::update_settings))
         // Calendar routes
